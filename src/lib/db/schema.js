@@ -155,3 +155,16 @@ export function buildCreateTableSql(name, def) {
   if (def.primaryKey) cols.push(def.primaryKey);
   return `CREATE TABLE IF NOT EXISTS ${name} (${cols.join(", ")})`;
 }
+
+function toPgColDef(def) {
+  return def
+    .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/i, "BIGSERIAL PRIMARY KEY")
+    .replace(/INTEGER PRIMARY KEY CHECK \(id = 1\)/i, "INTEGER PRIMARY KEY CHECK (id = 1)")
+    .replace(/\bREAL\b/g, "DOUBLE PRECISION");
+}
+
+export function buildCreateTableSqlPg(name, def) {
+  const cols = Object.entries(def.columns).map(([k, v]) => `${k} ${toPgColDef(v)}`);
+  if (def.primaryKey) cols.push(def.primaryKey);
+  return `CREATE TABLE IF NOT EXISTS ${name} (${cols.join(", ")})`;
+}

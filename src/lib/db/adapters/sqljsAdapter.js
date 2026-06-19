@@ -111,5 +111,33 @@ export async function createSqlJsAdapter(filePath) {
   process.on("SIGINT", flush);
   process.on("SIGTERM", flush);
 
-  return { driver: "sql.js", run, get, all, exec, transaction, close, raw: db };
+  async function transactionAsync(fn) {
+    const sp = `sp_${Math.random().toString(36).slice(2)}`;
+    db.exec(`SAVEPOINT ${sp}`);
+    try {
+      const result = await fn();
+      db.exec(`RELEASE ${sp}`);
+      scheduleSave();
+      return result;
+    } catch (e) {
+      try { db.exec(`ROLLBACK TO ${sp}`); db.exec(`RELEASE ${sp}`); } catch {}
+      throw e;
+    }
+  }
+
+  async function tableInfoAsync(tableName) {
+    return Promise.resolve(all(`PRAGMA table_info(${tableName})`));
+  }
+
+  return {
+    driver: "sql.js",
+    run: (sql, params = []) => Promise.resolve(run(sql, params)),
+    get: (sql, params = []) => Promise.resolve(get(sql, params) ?? null),
+    all: (sql, params = []) => Promise.resolve(all(sql, params)),
+    exec: (sql) => Promise.resolve(exec(sql)),
+    transaction: transactionAsync,
+    tableInfo: tableInfoAsync,
+    close,
+    raw: db,
+  };
 }

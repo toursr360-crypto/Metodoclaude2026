@@ -52,21 +52,16 @@ export async function createNodeSqliteAdapter(filePath) {
     driver: "node:sqlite",
     run(sql, params = []) {
       const r = prepare(sql).run(...params);
-      return { changes: Number(r.changes ?? 0), lastInsertRowid: Number(r.lastInsertRowid ?? 0) };
+      return Promise.resolve({ changes: Number(r.changes ?? 0), lastInsertRowid: Number(r.lastInsertRowid ?? 0) });
     },
-    get(sql, params = []) {
-      return prepare(sql).get(...params);
-    },
-    all(sql, params = []) {
-      return prepare(sql).all(...params);
-    },
-    exec(sql) { return db.exec(sql); },
-    transaction(fn) {
-      // node:sqlite has no transaction wrapper. Use SAVEPOINT for nested support.
+    get(sql, params = []) { return Promise.resolve(prepare(sql).get(...params) ?? null); },
+    all(sql, params = []) { return Promise.resolve(prepare(sql).all(...params)); },
+    exec(sql) { return Promise.resolve(db.exec(sql)); },
+    async transaction(fn) {
       const sp = `sp_${Math.random().toString(36).slice(2)}`;
       db.exec(`SAVEPOINT ${sp}`);
       try {
-        const r = fn();
+        const r = await fn();
         db.exec(`RELEASE ${sp}`);
         return r;
       } catch (e) {
@@ -74,6 +69,7 @@ export async function createNodeSqliteAdapter(filePath) {
         throw e;
       }
     },
+    async tableInfo(tableName) { return Promise.resolve(prepare(`PRAGMA table_info(${tableName})`).all()); },
     checkpoint() { try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {} },
     close() {
       clearInterval(checkpointTimer);

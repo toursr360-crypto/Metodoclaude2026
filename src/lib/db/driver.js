@@ -1,11 +1,21 @@
 import { ensureDirs, DATA_FILE } from "./paths.js";
 
-// Use global to survive Next.js dev hot-reload (module state resets on reload)
 if (!global._dbAdapter) global._dbAdapter = { instance: null, initPromise: null, logged: false };
 const state = global._dbAdapter;
 
+async function tryPostgres() {
+  const url = process.env.DATABASE_URL;
+  if (!url) return null;
+  try {
+    const { createPostgresAdapter } = await import("./adapters/postgresAdapter.js");
+    return await createPostgresAdapter(url);
+  } catch (e) {
+    console.warn(`[DB] pg unavailable: ${e.message}`);
+    return null;
+  }
+}
+
 async function tryBunSqlite() {
-  // Bun runtime only — built-in, no install needed
   if (!process.versions.bun) return null;
   try {
     const { createBunSqliteAdapter } = await import("./adapters/bunSqliteAdapter.js");
@@ -17,7 +27,6 @@ async function tryBunSqlite() {
 }
 
 async function tryBetterSqlite() {
-  // Skip on Bun — better-sqlite3 native bindings unsupported
   if (process.versions.bun) return null;
   try {
     const { createBetterSqliteAdapter } = await import("./adapters/betterSqliteAdapter.js");
@@ -29,7 +38,6 @@ async function tryBetterSqlite() {
 }
 
 async function tryNodeSqlite() {
-  // Built-in since Node 22.5.0 — no install needed. Skip under Bun (no node:sqlite).
   if (process.versions.bun) return null;
   const [maj, min] = process.versions.node.split(".").map(Number);
   if (maj < 22 || (maj === 22 && min < 5)) return null;
@@ -53,18 +61,18 @@ async function trySqlJs() {
 }
 
 async function initAdapter() {
-  ensureDirs();
-  // Order per runtime:
-  //   Bun:  bun:sqlite → sql.js
-  //   Node: better-sqlite3 → node:sqlite (≥22.5) → sql.js
-  let adapter = await tryBunSqlite();
-  if (!adapter) adapter = await tryBetterSqlite();
-  if (!adapter) adapter = await tryNodeSqlite();
-  if (!adapter) adapter = await trySqlJs();
-  if (!adapter) throw new Error("[DB] No SQLite driver available (bun/better/node/sql.js all failed)");
+  let adapter = await tryPostgres();
+  if (!adapter) {
+    ensureDirs();
+    adapter = await tryBunSqlite();
+    if (!adapter) adapter = await tryBetterSqlite();
+    if (!adapter) adapter = await tryNodeSqlite();
+    if (!adapter) adapter = await trySqlJs();
+  }
+  if (!adapter) throw new Error("[DB] No database driver available");
 
   if (!state.logged) {
-    console.log(`[DB] Driver: ${adapter.driver} | file: ${DATA_FILE}`);
+    if (!adapter.isPg) console.log(`[DB] Driver: ${adapter.driver} | file: ${DATA_FILE}`);
     state.logged = true;
   }
 

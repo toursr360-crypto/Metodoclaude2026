@@ -39,20 +39,23 @@ export async function createBunSqliteAdapter(filePath) {
     driver: "bun:sqlite",
     run(sql, params = []) {
       const r = prepare(sql).run(...params);
-      return { changes: Number(r.changes ?? 0), lastInsertRowid: Number(r.lastInsertRowid ?? 0) };
+      return Promise.resolve({ changes: Number(r.changes ?? 0), lastInsertRowid: Number(r.lastInsertRowid ?? 0) });
     },
-    get(sql, params = []) {
-      return prepare(sql).get(...params);
+    get(sql, params = []) { return Promise.resolve(prepare(sql).get(...params) ?? null); },
+    all(sql, params = []) { return Promise.resolve(prepare(sql).all(...params)); },
+    exec(sql) { return Promise.resolve(db.exec(sql)); },
+    async transaction(fn) {
+      db.exec("BEGIN");
+      try {
+        const result = await fn();
+        db.exec("COMMIT");
+        return result;
+      } catch (e) {
+        try { db.exec("ROLLBACK"); } catch {}
+        throw e;
+      }
     },
-    all(sql, params = []) {
-      return prepare(sql).all(...params);
-    },
-    exec(sql) { return db.exec(sql); },
-    transaction(fn) {
-      // bun:sqlite has db.transaction() API (similar to better-sqlite3)
-      const tx = db.transaction(fn);
-      return tx();
-    },
+    async tableInfo(tableName) { return Promise.resolve(prepare(`PRAGMA table_info(${tableName})`).all()); },
     checkpoint() { try { db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); } catch {} },
     close() {
       clearInterval(checkpointTimer);

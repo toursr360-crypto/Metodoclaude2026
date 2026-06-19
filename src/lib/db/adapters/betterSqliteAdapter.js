@@ -40,11 +40,22 @@ export function createBetterSqliteAdapter(filePath) {
 
   return {
     driver: "better-sqlite3",
-    run(sql, params = []) { return prepare(sql).run(params); },
-    get(sql, params = []) { return prepare(sql).get(params); },
-    all(sql, params = []) { return prepare(sql).all(params); },
-    exec(sql) { return db.exec(sql); },
-    transaction(fn) { return db.transaction(fn)(); },
+    run(sql, params = []) { return Promise.resolve(prepare(sql).run(params)); },
+    get(sql, params = []) { return Promise.resolve(prepare(sql).get(params) ?? null); },
+    all(sql, params = []) { return Promise.resolve(prepare(sql).all(params)); },
+    exec(sql) { return Promise.resolve(db.exec(sql)); },
+    async transaction(fn) {
+      db.exec("BEGIN");
+      try {
+        const result = await fn();
+        db.exec("COMMIT");
+        return result;
+      } catch (e) {
+        try { db.exec("ROLLBACK"); } catch {}
+        throw e;
+      }
+    },
+    async tableInfo(tableName) { return Promise.resolve(prepare(`PRAGMA table_info(${tableName})`).all([])); },
     checkpoint() { try { db.pragma("wal_checkpoint(TRUNCATE)"); } catch {} },
     close() {
       clearInterval(checkpointTimer);
